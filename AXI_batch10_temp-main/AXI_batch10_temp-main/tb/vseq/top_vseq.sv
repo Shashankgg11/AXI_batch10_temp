@@ -7,7 +7,12 @@
 class top_vseqr extends uvm_sequencer;
   `uvm_component_utils(top_vseqr)
 
-  cpu_sequencer cpu_sqr_h;   // set by top_env.connect_phase
+  cpu_sequencer               cpu_sqr_h;         // set by top_env.connect_phase
+  // ADDED: handles to the AXI4 slave VIP's own write/read sequencers, so a
+  // virtual sequence started on this vseqr can drive the slave-side
+  // sequence and the cpu-side sequence together, instead of only cpu_sqr_h.
+  axi4_slave_write_sequencer  slave_write_sqr_h; // set by top_env.connect_phase
+  axi4_slave_read_sequencer   slave_read_sqr_h;  // set by top_env.connect_phase
 
   function new(string name = "top_vseqr", uvm_component parent = null);
     super.new(name, parent);

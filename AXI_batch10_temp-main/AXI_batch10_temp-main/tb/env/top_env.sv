@@ -25,7 +25,12 @@ class top_env extends uvm_env;
 
   function void connect_phase(uvm_phase phase);
     super.connect_phase(phase);
-    vseqr_h.cpu_sqr_h = cpu_env_h.cpu_agt_h.cpu_seqr_h;
+    vseqr_h.cpu_sqr_h         = cpu_env_h.cpu_agt_h.cpu_seqr_h;
+    // ADDED: give the virtual sequencer a handle to the slave VIP's own
+    // write/read sequencers too, so axi4_virtual_write_seq / axi4_virtual_read_seq
+    // can start a sequence on the slave side in parallel with the cpu side.
+    vseqr_h.slave_write_sqr_h = axi_vip_env_h.slave_agt_h.axi4_slave_write_seqr_h;
+    vseqr_h.slave_read_sqr_h  = axi_vip_env_h.slave_agt_h.axi4_slave_read_seqr_h;
   endfunction
 
 endclass
