@@ -1,0 +1,158 @@
+`ifndef HDL_TOP_INCLUDED_
+`define HDL_TOP_INCLUDED_
+
+//--------------------------------------------------------------------------------------------
+// Module      : HDL Top
+// Description : Has the axi4 interface, the slave agent bfm, the cpu_if, and now the
+//               actual DUT (Top_Module_AXI4) wired to both.
+//
+// CHANGED vs original:
+//   - REMOVED axi4_master_agent_bfm instantiation. Top_Module_AXI4 is now the real
+//     AXI4 master driving AWVALID/ARVALID/etc onto intf - leaving the VIP's own
+//     master BFM instantiated on the same intf would fight it for the bus.
+//   - axi4_slave_agent_bfm is UNCHANGED - it still responds to whatever DUT drives.
+//   - ADDED: cpu_if instantiation + config_db::set so cpu_driver/cpu_monitor can find it.
+//   - ADDED: Top_Module_AXI4 instantiation, wired to cpu_if (FIFO side) and intf (AXI side).
+//     WID_a has no corresponding signal in axi4_if (AXI4 dropped WID vs AXI3) - left
+//     unconnected, harmless dangling output.
+//--------------------------------------------------------------------------------------------
+
+module hdl_top;
+
+  import uvm_pkg::*;
+  import axi4_globals_pkg::*;
+  `include "uvm_macros.svh"
+
+  //-------------------------------------------------------
+  // Clock Reset Initialization
+  //-------------------------------------------------------
+  bit aclk;
+  bit aresetn;
+
+  //-------------------------------------------------------
+  // Display statement for HDL_TOP
+  //-------------------------------------------------------
+  initial begin
+    $display("HDL_TOP");
+  end
+
+  //-------------------------------------------------------
+  // System Clock Generation
+  //-------------------------------------------------------
+  initial begin
+    aclk = 1'b0;
+    forever #10 aclk = ~aclk;
+  end
+
+  //-------------------------------------------------------
+  // System Reset Generation
+  // Active low reset
+  //-------------------------------------------------------
+  initial begin
+    aresetn = 1'b1;
+    #10 aresetn = 1'b0;
+
+    repeat (1) begin
+      @(posedge aclk);
+    end
+    aresetn = 1'b1;
+  end
+
+  // Variable : intf
+  // axi4 Interface Instantiation
+  axi4_if intf(.aclk(aclk),
+               .aresetn(aresetn));
+
+  // Variable : cpu_intf
+  // cpu_if Instantiation (NEW) - single clock/reset domain, same aclk/aresetn as intf
+  cpu_if cpu_intf(.clk(aclk),
+                  .rst(aresetn));
+
+  //-------------------------------------------------------
+  // Publish cpu_if to the UVM side (cpu_driver / cpu_monitor pick this
+  // up via uvm_config_db#(virtual cpu_if)::get(..., "cpu_vif", ...))
+  //-------------------------------------------------------
+  initial begin
+    uvm_config_db#(virtual cpu_if)::set(null, "*", "cpu_vif", cpu_intf);
+  end
+
+  //-------------------------------------------------------
+  // AXI4 Slave Agent BFM Instantiation (VIP side - UNCHANGED)
+  //-------------------------------------------------------
+  genvar i;
+  generate
+    for (i=0; i<NO_OF_SLAVES; i++) begin : axi4_slave_agent_bfm
+      axi4_slave_agent_bfm #(.SLAVE_ID(i)) axi4_slave_agent_bfm_h(intf);
+      defparam axi4_slave_agent_bfm[i].axi4_slave_agent_bfm_h.SLAVE_ID = i;
+    end
+  endgenerate
+
+  //-------------------------------------------------------
+  // DUT Instantiation (NEW) - Top_Module_AXI4 is the real AXI4 master.
+  // FIFO side -> cpu_intf, AXI side -> intf (same instance the slave
+  // VIP is bound to above).
+  //-------------------------------------------------------
+  Top_Module_AXI4 dut (
+    .clk      (aclk),
+    .rstn     (aresetn),
+    .ACLK     (aclk),
+    .ARESETn  (aresetn),
+
+    // FIFO side -> cpu_if
+    .wr_en    (cpu_intf.wr_en),
+    .rd_en    (cpu_intf.rd_en),
+    .wr_data  (cpu_intf.wr_data),
+    .rd_data  (cpu_intf.rd_data),
+    .full     (cpu_intf.full),
+    .empty    (cpu_intf.empty),
+
+    // AXI side -> intf (write address channel)
+    .AWID_a    (intf.awid),
+    .AWADDR_a  (intf.awaddr),
+    .AWLEN_a   (intf.awlen),
+    .AWSIZE_a  (intf.awsize),
+    .AWBURST_a (intf.awburst),
+    .AWLOCK_a  (intf.awlock),
+    .AWCACHE_a (intf.awcache),
+    .AWPROT_a  (intf.awprot),
+    .AWVALID_a (intf.awvalid),
+    .AWREADY_a (intf.awready),
+
+    // AXI side -> intf (write data channel) - WID_a left unconnected,
+    // axi4_if has no wid signal (AXI4 dropped per-beat WID vs AXI3)
+    .WDATA_a  (intf.wdata),
+    .WSTRB_a  (intf.wstrb),
+    .WLAST_a  (intf.wlast),
+    .WVALID_a (intf.wvalid),
+    .WREADY_a (intf.wready),
+
+    // AXI side -> intf (write response channel)
+    .BID_a    (intf.bid),
+    .BRESP_a  (intf.bresp),
+    .BVALID_a (intf.bvalid),
+    .BREADY_a (intf.bready),
+
+    // AXI side -> intf (read address channel)
+    .ARID_a    (intf.arid),
+    .ARADDR_a  (intf.araddr),
+    .ARLEN_a   (intf.arlen),
+    .ARSIZE_a  (intf.arsize),
+    .ARBURST_a (intf.arburst),
+    .ARLOCK_a  (intf.arlock),
+    .ARCACHE_a (intf.arcache),
+    .ARPROT_a  (intf.arprot),
+    .ARVALID_a (intf.arvalid),
+    .ARREADY_a (intf.arready),
+
+    // AXI side -> intf (read data channel)
+    .RID_a    (intf.rid),
+    .RDATA_a  (intf.rdata),
+    .RRESP_a  (intf.rresp),
+    .RLAST_a  (intf.rlast),
+    .RVALID_a (intf.rvalid),
+    .RREADY_a (intf.rready)
+  );
+
+endmodule : hdl_top
+
+`endif
